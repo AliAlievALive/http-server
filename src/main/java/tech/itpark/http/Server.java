@@ -78,88 +78,70 @@ public class Server {
                     throw new RuntimeException("invalid version: " + version);
                 }
 
-                if (method.equals(GET)) {
-                    // TODO: в будущем вычитать все header
-                    // TODO: вызывать обработчик
-
-                    final var body = "OK";
-                    out.write(
-                            (
-                                    "HTTP/1.1 200 OK\r\n" +
-                                            "Content-Type: text/plain\r\n" +
-                                            "Content-Length: " + body.length() + "\r\n" +
-                                            "Connection: close\r\n" +
-                                            "\r\n" +
-                                            body
-                            ).getBytes());
-                    return;
-                }
-
-                final var CRLFCRLF = new byte[]{'\r', '\n', '\r', '\n'};
-                final var headersEndIndex = Bytes.indexOf(buffer, CRLFCRLF, requestLineEndIndex, read) + CRLFCRLF.length;
-                var contentLength = 0;
-
-                // FIXME: refactor to method
-                var lastIndex = requestLineEndIndex;
-                while (true) {
-                    final var headerEndIndex = Bytes.indexOf(buffer, CRLF, lastIndex, headersEndIndex) + CRLF.length;
-                    if (headerEndIndex == -1) {
-                        throw new MalFormedRequestException();
-                    }
-                    final var headerLine = new String(buffer, lastIndex, headerEndIndex - lastIndex);
-
-                    if (headerLine.startsWith("Content-Length")) {
-                        // TODO:
-                        final var headerParts = Arrays.stream(headerLine.split(":"))
-                                .map(String::trim)
-                                .collect(Collectors.toList());
-
-                        if (headerParts.size() != 2) {
-                            throw new RuntimeException("bad Content-Length: " + headerLine);
+                if (uri.equals("/path")) {
+                    switch (method) {
+                        case GET -> {
+                            final var getBody = "OK";
+                            responseToOut(out, getBody);
                         }
-
-                        contentLength = Integer.parseInt(headerParts.get(1));
-                        break;
+                        case POST -> {
+                            final var CRLFCRLF = new byte[]{'\r', '\n', '\r', '\n'};
+                            final var headersEndIndex = Bytes.indexOf(buffer, CRLFCRLF, requestLineEndIndex, read) + CRLFCRLF.length;
+                            var contentLength = 0;
+                            contentLength = getContentLength(buffer, CRLF, requestLineEndIndex, headersEndIndex);
+                            in.reset();
+                            final var totalSize = headersEndIndex + contentLength;
+                            final var fullRequestBytes = in.readNBytes(totalSize);
+                            final var body = "Read: " + fullRequestBytes.length;
+                            responseToOut(out, body);
+                        }
                     }
-
-                    lastIndex = headerEndIndex;
                 }
-                in.reset();
-
-                final var totalSize = headersEndIndex + contentLength;
-                final var fullRequestBytes = in.readNBytes(totalSize);
-
-                final var body = "Read: " + fullRequestBytes.length;
-                out.write(
-                        (
-                                "HTTP/1.1 200 OK\r\n" +
-                                        "Content-Type: text/plain\r\n" +
-                                        "Content-Length: " + body.length() + "\r\n" +
-                                        "Connection: close\r\n" +
-                                        "\r\n" +
-                                        body
-                        ).getBytes());
-                return;
-
-                // TODO: find handler & call it
-
-                // TODO: HttpRequest ->
-                // 1. Method -> GET/POST | getHeader
-                // 2. Uri (path/query) | getUri
-                // 3. Version | getVersion
-                // 4. Headers | get
-                // 5. Body []byte
-
-                // TODO: HttpResponse
-                // 1. StatusCode | setStatusCode
-                // 2. StatusText - OK | setStatusText
-                // 3. Headers - | setHeader()
-                // 4. Body []byte - |
             } catch (MalFormedRequestException e) {
-                // out есть
+                System.out.println(e);
             }
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    private void responseToOut(BufferedOutputStream out, String getBody) throws IOException {
+        out.write(
+                (
+                        "HTTP/1.1 200 OK\r\n" +
+                                "Content-Type: text/plain\r\n" +
+                                "Content-Length: " + getBody.length() + "\r\n" +
+                                "Connection: close\r\n" +
+                                "\r\n" +
+                                getBody
+                ).getBytes());
+    }
+
+    private int getContentLength(byte[] buffer, byte[] CRLF, int requestLineEndIndex, int headersEndIndex) {
+        int contentLength;
+        var lastIndex = requestLineEndIndex;
+        while (true) {
+            final var headerEndIndex = Bytes.indexOf(buffer, CRLF, lastIndex, headersEndIndex) + CRLF.length;
+            if (headerEndIndex == -1) {
+                throw new MalFormedRequestException();
+            }
+            final var headerLine = new String(buffer, lastIndex, headerEndIndex - lastIndex);
+
+            if (headerLine.startsWith("Content-Length")) {
+                final var headerParts = Arrays.stream(headerLine.split(":"))
+                        .map(String::trim)
+                        .collect(Collectors.toList());
+
+                if (headerParts.size() != 2) {
+                    throw new RuntimeException("bad Content-Length: " + headerLine);
+                }
+
+                contentLength = Integer.parseInt(headerParts.get(1));
+                break;
+            }
+
+            lastIndex = headerEndIndex;
+        }
+        return contentLength;
     }
 }
