@@ -37,75 +37,71 @@ public class Server {
         }
     }
 
-    private void handleConnection(Socket socket) {
+    private void handleConnection(Socket socket) throws MalFormedRequestException {
         try (
                 socket;
                 final var in = new BufferedInputStream(socket.getInputStream());
                 final var out = new BufferedOutputStream(socket.getOutputStream());
         ) {
-            try {
-                final var buffer = new byte[4096];
-                in.mark(4096);
+            final var buffer = new byte[4096];
+            in.mark(4096);
 
-                final var read = in.read(buffer);
-                final var CRLF = new byte[]{'\r', '\n'};
+            final var read = in.read(buffer);
+            final var CRLF = new byte[]{'\r', '\n'};
 
-                final var requestLineEndIndex = Bytes.indexOf(buffer, CRLF, 0, read) + CRLF.length;
-                if (requestLineEndIndex == -1) {
-                    throw new MalFormedRequestException();
+            final var requestLineEndIndex = Bytes.indexOf(buffer, CRLF, 0, read) + CRLF.length;
+            if (requestLineEndIndex == -1) {
+                throw new MalFormedRequestException();
+            }
+
+            final var requestLineParts = new String(buffer, 0, requestLineEndIndex)
+                    .trim()
+                    .split(" ");
+
+            if (requestLineParts.length != 3) {
+                throw new InvalidRequestLineException("requestLine");
+            }
+
+            final var method = requestLineParts[0];
+            final var uri = requestLineParts[1];
+            final var version = requestLineParts[2];
+
+            if (!allowedMethods.contains(method)) {
+                throw new RuntimeException("invalid header: " + method);
+            }
+
+            if (!uri.startsWith("/")) {
+                throw new RuntimeException("invalid uri: " + uri);
+            }
+
+            if (!supportedHTTPVersions.contains(version)) {
+                throw new RuntimeException("invalid version: " + version);
+            }
+
+            var routes = Map.of(
+                    "GET", Map.of(
+                            "/path/getPath", getPath(uri),
+                            "/path", "PATHS"), //сюда вместо "PATHS" и ниже я мог прописать выполнение какого то обработчика, но сэкономил время)
+                    "POST", Map.of(
+                            "/path", "PATH SAVED"
+                    )
+            );
+
+            switch (method) {
+                case GET -> {
+                    responseToOut(out, routes.get(method).get(uri));
                 }
-
-                final var requestLineParts = new String(buffer, 0, requestLineEndIndex)
-                        .trim()
-                        .split(" ");
-
-                if (requestLineParts.length != 3) {
-                    throw new InvalidRequestLineException("requestLine");
+                case POST -> {
+                    final var CRLFCRLF = new byte[]{'\r', '\n', '\r', '\n'};
+                    final var headersEndIndex = Bytes.indexOf(buffer, CRLFCRLF, requestLineEndIndex, read) + CRLFCRLF.length;
+                    var contentLength = 0;
+                    contentLength = getContentLength(buffer, CRLF, requestLineEndIndex, headersEndIndex);
+                    in.reset();
+                    final var totalSize = headersEndIndex + contentLength;
+                    final var fullRequestBytes = in.readNBytes(totalSize);
+                    final var body = "Read: " + fullRequestBytes.length;
+                    responseToOut(out, routes.get(method).get(uri));
                 }
-
-                final var method = requestLineParts[0];
-                final var uri = requestLineParts[1];
-                final var version = requestLineParts[2];
-
-                if (!allowedMethods.contains(method)) {
-                    throw new RuntimeException("invalid header: " + method);
-                }
-
-                if (!uri.startsWith("/")) {
-                    throw new RuntimeException("invalid uri: " + uri);
-                }
-
-                if (!supportedHTTPVersions.contains(version)) {
-                    throw new RuntimeException("invalid version: " + version);
-                }
-
-                var routes = Map.of(
-                        "GET", Map.of(
-                                "/path/getPath", getPath(uri),
-                                "/path", "PATHS"), //сюда вместо "PATHS" и ниже я мог прописать выполнение какого то обработчика, но сэкономил время)
-                        "POST", Map.of(
-                                "/path", "PATH SAVED"
-                        )
-                );
-
-                switch (method) {
-                    case GET -> {
-                        responseToOut(out, routes.get(method).get(uri));
-                    }
-                    case POST -> {
-                        final var CRLFCRLF = new byte[]{'\r', '\n', '\r', '\n'};
-                        final var headersEndIndex = Bytes.indexOf(buffer, CRLFCRLF, requestLineEndIndex, read) + CRLFCRLF.length;
-                        var contentLength = 0;
-                        contentLength = getContentLength(buffer, CRLF, requestLineEndIndex, headersEndIndex);
-                        in.reset();
-                        final var totalSize = headersEndIndex + contentLength;
-                        final var fullRequestBytes = in.readNBytes(totalSize);
-                        final var body = "Read: " + fullRequestBytes.length;
-                        responseToOut(out, routes.get(method).get(uri));
-                    }
-                }
-            } catch (MalFormedRequestException e) {
-                System.out.println(e);
             }
         } catch (IOException e) {
             e.printStackTrace();
