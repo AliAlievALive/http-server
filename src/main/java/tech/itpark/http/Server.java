@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -78,23 +79,29 @@ public class Server {
                     throw new RuntimeException("invalid version: " + version);
                 }
 
-                if (uri.equals("/path")) {
-                    switch (method) {
-                        case GET -> {
-                            final var getBody = "OK";
-                            responseToOut(out, getBody);
-                        }
-                        case POST -> {
-                            final var CRLFCRLF = new byte[]{'\r', '\n', '\r', '\n'};
-                            final var headersEndIndex = Bytes.indexOf(buffer, CRLFCRLF, requestLineEndIndex, read) + CRLFCRLF.length;
-                            var contentLength = 0;
-                            contentLength = getContentLength(buffer, CRLF, requestLineEndIndex, headersEndIndex);
-                            in.reset();
-                            final var totalSize = headersEndIndex + contentLength;
-                            final var fullRequestBytes = in.readNBytes(totalSize);
-                            final var body = "Read: " + fullRequestBytes.length;
-                            responseToOut(out, body);
-                        }
+                var routes = Map.of(
+                        "GET", Map.of(
+                                "/path/getPath", getPath(uri),
+                                "/path", "PATHS"), //сюда вместо "PATHS" и ниже я мог прописать выполнение какого то обработчика, но сэкономил время)
+                        "POST", Map.of(
+                                "/path", "PATH SAVED"
+                        )
+                );
+
+                switch (method) {
+                    case GET -> {
+                        responseToOut(out, routes.get(method).get(uri));
+                    }
+                    case POST -> {
+                        final var CRLFCRLF = new byte[]{'\r', '\n', '\r', '\n'};
+                        final var headersEndIndex = Bytes.indexOf(buffer, CRLFCRLF, requestLineEndIndex, read) + CRLFCRLF.length;
+                        var contentLength = 0;
+                        contentLength = getContentLength(buffer, CRLF, requestLineEndIndex, headersEndIndex);
+                        in.reset();
+                        final var totalSize = headersEndIndex + contentLength;
+                        final var fullRequestBytes = in.readNBytes(totalSize);
+                        final var body = "Read: " + fullRequestBytes.length;
+                        responseToOut(out, routes.get(method).get(uri));
                     }
                 }
             } catch (MalFormedRequestException e) {
@@ -103,6 +110,10 @@ public class Server {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    private String getPath(String uri) {
+        return uri;
     }
 
     private void responseToOut(BufferedOutputStream out, String getBody) throws IOException {
